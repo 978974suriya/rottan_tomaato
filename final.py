@@ -1,190 +1,130 @@
-# import pandas as pd
-# from sklearn.model_selection import RandomizedSearchCV
-# from sklearn.preprocessing import StandardScaler, OneHotEncoder
-# from sklearn.compose import ColumnTransformer
-# from sklearn.pipeline import Pipeline
-# from sklearn.ensemble import RandomForestRegressor
-# from sklearn.metrics import mean_squared_error
-
-# # Load data from Excel file
-# # Ensure to replace 'your_file.xlsx' with the actual path to your Excel file
-# df = pd.read_excel('250_rows_extracted.xlsx')
-
-# # Check the first few rows of the data
-# print(df.head())
-
-# # Select features and target
-# features  = ['movie_info','genre', 'directors', 'writers', 'runtime_in_minutes', 'tomatometer_rating', 'tomatometer_count',  'rating', 'in_theaters_date', 'on_streaming_date','tomatometer_status']
-# target = 'audience_rating'
-
-# X = df[features]
-# y = df[target]
-
-# # Ensure all categorical features are strings and avoid the SettingWithCopyWarning by using .loc
-# categorical_features = ['movie_info','genre', 'directors', 'writers', 'rating','tomatometer_status']
-# for col in categorical_features:
-#     X.loc[:, col] = X[col].astype(str)
-
-# # Handle missing values
-# X = X.fillna('Unknown')
-# y = y.fillna(y.mean())
-
-# # Preprocessing for numerical and categorical features
-# numeric_features = ['runtime_in_minutes', 'tomatometer_rating', 'tomatometer_count', 'in_theaters_date', 'on_streaming_date']
-# X['in_theaters_date'] = pd.to_datetime(X['in_theaters_date'], errors='coerce').astype('int64') // 10**9
-# X['on_streaming_date'] = pd.to_datetime(X['on_streaming_date'], errors='coerce').astype('int64') // 10**9
-
-# numeric_transformer = StandardScaler()
-# categorical_transformer = OneHotEncoder(handle_unknown='ignore')
-
-# preprocessor = ColumnTransformer(
-#     transformers=[
-#         ('num', numeric_transformer, numeric_features),
-#         ('cat', categorical_transformer, categorical_features)
-#     ])
-
-# # Create a pipeline with the preprocessor and a model
-# model = Pipeline(steps=[
-#     ('preprocessor', preprocessor),
-#     ('regressor', RandomForestRegressor(random_state=42))
-# ])
-
-# # Parameter grid for RandomizedSearchCV
-# param_dist = {
-#     'regressor__n_estimators': [100, 200, 300],
-#     'regressor__max_depth': [None, 10, 20, 30, 40],
-#     'regressor__min_samples_split': [2, 5, 10],
-#     'regressor__min_samples_leaf': [1, 2, 4],
-#     'regressor__max_features': ['auto', 'sqrt', 'log2'],
-#     'regressor__bootstrap': [True, False],
-#     'regressor__criterion': ['squared_error', 'absolute_error']
-# }
-
-# # Use RandomizedSearchCV for better hyperparameter tuning
-# random_search = RandomizedSearchCV(model, param_dist, n_iter=25, cv=3, scoring='neg_mean_squared_error', random_state=42)
-
-# # Fit the model using randomized search
-# random_search.fit(X, y)
-
-# # Get the best parameters
-# best_params = random_search.best_params_
-# print(f'Best parameters: {best_params}')
-
-# # Evaluate the best model
-# best_model = random_search.best_estimator_
-
-# # Make predictions
-# y_pred_best = best_model.predict(X)
-
-# # Evaluate performance
-# mse = mean_squared_error(y, y_pred_best)
-# print(f'Mean Squared Error (MSE) of the best model: {mse}')
-
-# # Compare predicted ratings with actual ratings
-# comparison_df = df.copy()
-# comparison_df['Predicted Audience Rating'] = y_pred_best
-# print(comparison_df[['movie_title', 'audience_rating', 'Predicted Audience Rating']])
-
-# # Optionally, you can save the predictions to a new Excel file
-# comparison_df.to_excel('predictions.xlsx', index=False)
-# Remove rows with null values in the target or features
 import pandas as pd
-from sklearn.model_selection import RandomizedSearchCV
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+import numpy as np
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.preprocessing import StandardScaler, OrdinalEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error
+from sklearn.ensemble import GradientBoostingRegressor
+from xgboost import XGBRegressor
+from sklearn.metrics import mean_squared_error, r2_score
+import warnings
+
+warnings.filterwarnings("ignore")
 
 # Load data from Excel file
-df = pd.read_excel('6000_rows_extracted.xlsx')
+df = pd.read_excel('Rotten_Tomatoes_Movies3.xls')
 
-# Check the first few rows of the data
-print(df.head())
+# Take a random sample of 1,000 rows for faster processing
+df_sample = df.sample(n=1000, random_state=42)
 
 # Select features and target
-features  = ['movie_info','genre', 'directors', 'writers', 'runtime_in_minutes', 'tomatometer_rating', 'tomatometer_count',  'rating', 'in_theaters_date', 'on_streaming_date','tomatometer_status']
+features = ['genre', 'runtime_in_minutes', 'tomatometer_rating', 'tomatometer_count', 
+            'rating', 'in_theaters_date', 'on_streaming_date', 'tomatometer_status']
 target = 'audience_rating'
 
-X = df[features]
-y = df[target]
+# Drop rows where target is missing
+df_sample = df_sample.dropna(subset=[target])
 
-# Ensure all categorical features are strings and avoid the SettingWithCopyWarning by using .loc
-categorical_features = ['movie_info','genre', 'directors', 'writers', 'rating','tomatometer_status']
-for col in categorical_features:
-    X.loc[:, col] = X[col].astype(str)
+# Separate features & target
+X = df_sample[features]
+y = df_sample[target]
 
-# Handle missing values for categorical features
-X = X.fillna('Unknown')
-y = y.fillna(y.mean())
+# Convert categorical features to strings for encoding
+categorical_features = ['genre', 'rating', 'tomatometer_status']
+X[categorical_features] = X[categorical_features].astype(str)
 
-df_clean = df.dropna(subset=[target] + features)
+# Fill missing numerical values with median
+numeric_features = ['runtime_in_minutes', 'tomatometer_rating', 'tomatometer_count']
+X[numeric_features] = X[numeric_features].fillna(X[numeric_features].median())
 
-# Select features and target after cleaning
-X = df_clean[features]
-y = df_clean[target]
+# Convert date features to timestamps
+date_features = ['in_theaters_date', 'on_streaming_date']
+for col in date_features:
+    X[col] = pd.to_datetime(X[col], errors='coerce')
+    X[col] = X[col].apply(lambda x: x.timestamp() if pd.notnull(x) else np.nan)
+    X[col] = X[col].fillna(X[col].median())  # Fill missing dates with median timestamp
 
-# Ensure all categorical features are strings
-categorical_features = ['movie_info','genre', 'directors', 'writers', 'rating','tomatometer_status']
-for col in categorical_features:
-    X.loc[:, col] = X[col].astype(str)
+# Split into training and testing sets (80% train, 20% test)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Handle missing values (this step will be redundant, but added for clarity)
-X = X.fillna('Unknown')
-y = y.fillna(y.mean())
-
-# Preprocessing for numerical and categorical features
-numeric_features = ['runtime_in_minutes', 'tomatometer_rating', 'tomatometer_count', 'in_theaters_date', 'on_streaming_date']
-X['in_theaters_date'] = pd.to_datetime(X['in_theaters_date'], errors='coerce').astype('int64') // 10**9
-X['on_streaming_date'] = pd.to_datetime(X['on_streaming_date'], errors='coerce').astype('int64') // 10**9
-
+# Define transformers
 numeric_transformer = StandardScaler()
-categorical_transformer = OneHotEncoder(handle_unknown='ignore')
+categorical_transformer = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
 
+# Preprocessing pipeline
 preprocessor = ColumnTransformer(
-    transformers=[('num', numeric_transformer, numeric_features),
-                  ('cat', categorical_transformer, categorical_features)
-    ])
+    transformers=[
+        ('num', numeric_transformer, numeric_features + date_features),
+        ('cat', categorical_transformer, categorical_features)
+    ]
+)
 
-# Create a pipeline with the preprocessor and a model
-model = Pipeline(steps=[('preprocessor', preprocessor),
-                        ('regressor', RandomForestRegressor(random_state=42))])
-
-# Parameter grid for RandomizedSearchCV
-param_dist = {
-    'regressor__n_estimators': [100, 200, 300],
-    'regressor__max_depth': [None, 10, 20, 30, 40],
-    'regressor__min_samples_split': [2, 5, 10],
-    'regressor__min_samples_leaf': [1, 2, 4],
-    'regressor__max_features': ['auto', 'sqrt', 'log2'],
-    'regressor__bootstrap': [True, False],
-    'regressor__criterion': ['squared_error', 'absolute_error']
+# Define models
+models = {
+    "GradientBoosting": GradientBoostingRegressor(random_state=42),
+    "XGBoost": XGBRegressor(objective='reg:squarederror', random_state=42)
 }
 
-# Use RandomizedSearchCV for better hyperparameter tuning
-random_search = RandomizedSearchCV(model, param_dist, n_iter=25, cv=3, scoring='neg_mean_squared_error', random_state=42, n_jobs=-1)
+# Define hyperparameter search space
+param_grid = {
+    "GradientBoosting": {
+        'regressor__n_estimators': [100, 300, 500],
+        'regressor__learning_rate': [0.01, 0.05, 0.1],
+        'regressor__max_depth': [3, 5, 10],
+        'regressor__min_samples_split': [2, 5, 10],
+        'regressor__min_samples_leaf': [1, 2, 4]
+    },
+    "XGBoost": {
+        'regressor__n_estimators': [100, 300, 500],
+        'regressor__learning_rate': [0.01, 0.05, 0.1],
+        'regressor__max_depth': [3, 5, 10],
+        'regressor__min_child_weight': [1, 3, 5],
+        'regressor__subsample': [0.6, 0.8, 1.0],
+        'regressor__colsample_bytree': [0.6, 0.8, 1.0]
+    }
+}
 
-# Fit the model using randomized search
-random_search.fit(X, y)
+# Train and evaluate both models
+best_models = {}
+for model_name, model in models.items():
+    print(f"Training {model_name}...")
 
-# Get the best parameters
-best_params = random_search.best_params_
-print(f'Best parameters: {best_params}')
+    pipeline = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('regressor', model)
+    ])
 
-# Evaluate the best model
-best_model = random_search.best_estimator_
+    search = RandomizedSearchCV(pipeline, param_grid[model_name], 
+                                n_iter=10, cv=3, 
+                                scoring='neg_mean_squared_error', 
+                                random_state=42, n_jobs=-1)
+    
+    search.fit(X_train, y_train)
+    best_models[model_name] = search.best_estimator_
 
-# Make predictions
-y_pred_best = best_model.predict(X)
+    # Make predictions
+    y_pred = best_models[model_name].predict(X_test)
 
-# Evaluate performance
-mse = mean_squared_error(y, y_pred_best)
-print(f'Mean Squared Error (MSE) of the best model: {mse}')
+    # Model evaluation
+    mse = mean_squared_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
 
-# Compare predicted ratings with actual ratings
-comparison_df = df_clean.copy()  # Use the cleaned DataFrame
-comparison_df['Predicted Audience Rating'] = y_pred_best
-print(comparison_df[['movie_title', 'audience_rating', 'Predicted Audience Rating']])
+    print(f"Best Parameters for {model_name}: {search.best_params_}")
+    print(f"{model_name} - Mean Squared Error (MSE): {mse:.4f}")
+    print(f"{model_name} - R-squared (R²): {r2:.4f}")
+    print("="*50)
 
-# Optionally, you can save the predictions to a new Excel file
+# Use the best performing model for final predictions
+final_model = best_models["XGBoost"]  # Change to "GradientBoosting" if it performs better
+
+# Predict on test data
+y_pred_final = final_model.predict(X_test)
+
+# Compare actual vs predicted
+comparison_df = X_test.copy()
+comparison_df['Actual Audience Rating'] = y_test
+comparison_df['Predicted Audience Rating'] = y_pred_final
+print(comparison_df[['genre', 'Actual Audience Rating', 'Predicted Audience Rating']])
+
+# Save predictions to Excel
 comparison_df.to_excel('predictions.xlsx', index=False)
